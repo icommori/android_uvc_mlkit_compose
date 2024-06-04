@@ -47,3 +47,9 @@ Imagenet (ILSVRC-2012-CLS) classification with EfficientNet-B0.
 efficientnet
 tensorflow/efficientnet
 
+# Screen Capture
+
+<img src="images/detectImageLabel.png" width="640" height="360"> <img src="images/detectImageLabelCustom.png" width="640" height="360">
+<img src="images/detectObject.png" width="640" height="360">
+<img src="images/detectPose.png" width="640" height="360">
+<img src="images/detectSelfieSegmentOrg.png" width="480" height="270"> <img src="images/detectSelfieSegment.png" width="480" height="270">
