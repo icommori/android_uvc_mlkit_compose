@@ -5,6 +5,8 @@ import android.app.Application;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.util.Log;
 
 public class myApp extends Application {
@@ -23,7 +25,17 @@ public class myApp extends Application {
         });
 
     }
-
+    public String  getPackageVersion() {
+        Context context = getApplicationContext();
+        PackageManager manager = context.getPackageManager();
+        try {
+            PackageInfo info = manager.getPackageInfo(context.getPackageName(), 0);
+            return info.versionName;
+        } catch (PackageManager.NameNotFoundException e) {
+            e.printStackTrace();
+        }
+        return "";
+    }
     public void handleUncaughtException(Thread thread, Throwable e) {
 
         Intent intent = new Intent(this, MainActivity.class);

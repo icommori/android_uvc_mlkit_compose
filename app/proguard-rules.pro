@@ -45,3 +45,4 @@
 -keep,allowoptimization,allowshrinking,allowobfuscation class <3>
 
 -keep class com.serenegiant.usb.** { *; }
+-keep class com.jiangdg.uvc.** { *; }

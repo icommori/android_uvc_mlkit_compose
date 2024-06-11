@@ -1,15 +1,23 @@
 package com.innocomm.mlkit.camerauvctest
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.res.Configuration
 import android.graphics.PointF
+import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbManager
+import android.os.Build
 import android.os.Bundle
 import android.text.TextUtils
 import android.util.Log
 import android.view.SurfaceHolder
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.addCallback
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.Canvas
@@ -18,24 +26,37 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Api
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ResetTv
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,8 +64,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -52,18 +73,26 @@ import androidx.compose.ui.graphics.toComposeRect
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.compositionContext
+import androidx.compose.ui.platform.createLifecycleAwareWindowRecomposer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.MultiplePermissionsState
 import com.google.accompanist.permissions.PermissionStatus
+import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.google.accompanist.permissions.shouldShowRationale
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -77,17 +106,19 @@ import com.google.mlkit.vision.text.Text
 import com.innocomm.mlkit.camerauvctest.ui.theme.CameraUVCTestTheme
 import com.innocomm.mlkit.camerauvctest.utils.adjustPoint
 import com.innocomm.mlkit.camerauvctest.utils.adjustSize
+import com.innocomm.mlkit.camerauvctest.utils.dpToPx
 import com.innocomm.mlkit.camerauvctest.utils.drawBounds
 import com.innocomm.mlkit.camerauvctest.utils.drawLandmark
 import com.innocomm.mlkit.camerauvctest.utils.drawLine2
 import com.innocomm.mlkit.camerauvctest.utils.drawTriangle
 import com.innocomm.mlkit.camerauvctest.utils.gOffsetX
+import com.innocomm.mlkit.camerauvctest.utils.gOffsetY
 import com.innocomm.mlkit.camerauvctest.utils.myPose
 import com.jiangdg.ausbc.CameraClient
-import com.jiangdg.ausbc.callback.ICaptureCallBack
 import com.jiangdg.ausbc.camera.bean.PreviewSize
-import com.jiangdg.ausbc.utils.ToastUtils
-import com.jiangdg.ausbc.widget.AspectRatioSurfaceView
+import com.jiangdg.ausbc.widget.AspectRatioSurfaceView2
+import kotlinx.coroutines.CoroutineExceptionHandler
+
 
 class MainActivity : ComponentActivity() {
     companion object {
@@ -95,13 +126,30 @@ class MainActivity : ComponentActivity() {
     }
 
     val mmyViewModel: myViewModel by viewModels { myViewModel.Factory }
+    lateinit var backCallback: OnBackPressedCallback
 
-    @OptIn(ExperimentalPermissionsApi::class)
+    @OptIn(ExperimentalPermissionsApi::class, ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.v(TAG, "onCreate()")
+
+        backCallback = onBackPressedDispatcher.addCallback {
+            Log.v(TAG, "Back pressed")
+            finish()
+        }
+        //Force restart Activity if crash
+        val recomposer = window.decorView.createLifecycleAwareWindowRecomposer(
+            CoroutineExceptionHandler { coroutineContext, throwable ->
+                throwable.printStackTrace()
+                recreate() }, lifecycle)
+        window.decorView.compositionContext = recomposer
+        //~
         setContent {
             CameraUVCTestTheme {
-
+                HideSystemBars()
+                /*if(resources.displayMetrics.widthPixels<resources.displayMetrics.heightPixels) {
+                    LockScreenOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
+                }*/
                 // A surface container using the 'background' color from the theme
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -121,9 +169,31 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+    }
+    ///
+
+    fun hasUSBPermission():Boolean {
+        //获取service
+        val manager = getSystemService(USB_SERVICE) as UsbManager
+        //获取设备列表(一般只有一个,usb 口只有一个)
+        val deviceList = manager.deviceList
+        val deviceIterator: Iterator<UsbDevice> = deviceList.values.iterator()
+
+        if(deviceList.size>0){
+            val device = deviceIterator.next()
+            Log.v(TAG,"USB device ${device.deviceName}: "+manager.hasPermission(device))
+            return manager.hasPermission(device)
+        }
+        return false
+    }
+
 }
 
 @ExperimentalPermissionsApi
@@ -154,6 +224,7 @@ fun RequestMultiplePermissions(
     )
 }
 
+@SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @ExperimentalPermissionsApi
 @Composable
 private fun HandleRequests(
@@ -164,19 +235,189 @@ private fun HandleRequests(
     val viewmodel = (LocalContext.current as MainActivity).mmyViewModel
     var shouldShowRationale by remember { mutableStateOf(false) }
     val result = multiplePermissionsState.permissions.all {
+        Log.v(MainActivity.TAG,""+it.permission+" "+it.status.isGranted)
         shouldShowRationale = it.status.shouldShowRationale
         it.status == PermissionStatus.Granted
     }
     if (result) {
         Toast.makeText(LocalContext.current, "Permission granted successfully", Toast.LENGTH_SHORT)
             .show()
-//        YourApp()
-        MyApp(viewmodel)
+
+        AppBody(viewmodel)
+
     } else {
         deniedContent(shouldShowRationale)
     }
 }
+@Composable
+fun HideSystemBars() {
+    val context = LocalContext.current
 
+    DisposableEffect(Unit) {
+        val window = context.findActivity()?.window ?: return@DisposableEffect onDispose {}
+        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+
+        insetsController.apply {
+            hide(WindowInsetsCompat.Type.statusBars())
+            hide(WindowInsetsCompat.Type.navigationBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+
+        onDispose {
+            insetsController.apply {
+                show(WindowInsetsCompat.Type.statusBars())
+                show(WindowInsetsCompat.Type.navigationBars())
+                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+            }
+        }
+    }
+}
+@Composable
+fun LockScreenOrientation(orientation: Int) {
+    val context = LocalContext.current
+    DisposableEffect(orientation) {
+        val activity = context.findActivity() ?: return@DisposableEffect onDispose {}
+        val originalOrientation = activity.requestedOrientation
+        activity.requestedOrientation = orientation
+        onDispose {
+            // restore original orientation when view disappears
+            activity.requestedOrientation = originalOrientation
+        }
+    }
+}
+fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AppBody(viewmodel: myViewModel) {
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = { AppBar(viewmodel) },
+        content = {
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background),
+            ) {
+                MyApp(viewmodel,it)
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AppBar(viewmodel: myViewModel) {
+    val activity = (LocalContext.current as? MainActivity)
+    val showMLTypeDlg = remember { mutableStateOf(false) }
+    val showPreviewSizeDlg = remember { mutableStateOf(false) }
+    val indxAnalyzer by viewmodel.indxAnalyzer.collectAsState()
+
+
+    TopAppBar(
+        colors = TopAppBarDefaults.mediumTopAppBarColors(
+           // containerColor = MaterialTheme.colorScheme.primaryContainer,
+           // titleContentColor = MaterialTheme.colorScheme.primary,
+        ),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if(indxAnalyzer==0){
+                    Text(
+                        text =  stringResource(R.string.app_name),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    DisplayVersion()
+                }else{
+                    Text(
+                        text = "Analyzer: "+myViewModel.Analyzers[indxAnalyzer],
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        },
+        navigationIcon = {
+            IconButton(onClick = {
+                activity?.onBackPressedDispatcher?.onBackPressed()
+            }) {
+                Icon(
+                    imageVector = Icons.Filled.ArrowBack,
+                    contentDescription = "Localized description",
+                    //tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        },
+        actions = {
+            IconButton(onClick = {
+                showMLTypeDlg.value = true
+            }) {
+                Icon(
+                    imageVector = Icons.Filled.Api,
+                    contentDescription = "Api",
+                    //tint = MaterialTheme.colorScheme.primary
+                )
+                if(showMLTypeDlg.value){
+                    popupMenuSelectMLType(viewmodel = viewmodel) {
+                        showMLTypeDlg.value = false
+                    }
+                }
+
+            }
+            IconButton(onClick = {
+                showPreviewSizeDlg.value = true
+            }) {
+                Icon(
+                    imageVector = Icons.Filled.ResetTv,
+                    contentDescription = "Resolution",
+                    //tint = MaterialTheme.colorScheme.primary
+                )
+                if(showPreviewSizeDlg.value){
+                    popupMenuPreviewSize(viewmodel = viewmodel) {
+                        showPreviewSizeDlg.value = false
+                    }
+                }
+            }
+        },
+    )
+}
+
+@Composable
+fun DisplayVersion() {
+    val context = LocalContext.current
+    val app = (context.applicationContext as? myApp)
+    // on below line we are creating a column
+    Column(
+        // on below line we are adding a modifier to it
+        modifier = Modifier
+            .wrapContentSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+
+        // on below line we are creating a variable
+        // and storing our version name
+        // and version code.
+        val version =
+            "v." + app?.getPackageVersion()
+
+        Text(
+            text = version,
+            modifier = Modifier.padding(5.dp),
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+    }
+
+}
 @ExperimentalPermissionsApi
 @Composable
 fun PermissionDeniedContent(
@@ -228,8 +469,8 @@ fun Content(text: String, showButton: Boolean = true, onClick: () -> Unit) {
 }
 
 @Composable
-fun MyApp(viewmodel: myViewModel) {
-    val context = (LocalContext.current as? MainActivity)
+fun MyApp(viewmodel: myViewModel, paddingValues: PaddingValues) {
+    val act = (LocalContext.current as? MainActivity)
     val myText by viewmodel.text.collectAsState()
     val fps by viewmodel.fps.collectAsState()
     val texts by viewmodel.texts.collectAsState()
@@ -241,24 +482,44 @@ fun MyApp(viewmodel: myViewModel) {
     val mypose by viewmodel.poses.collectAsState()
     val myCamClient by viewmodel.camclient.collectAsState()
     val imgSize by viewmodel.imgSize.collectAsState()
-    val previewsize by viewmodel.previewsize.collectAsState()
     val showSelfieSegment by viewmodel.showSelfieSegment.collectAsState()
+    val (showRefresh ,onSetShowRefresh) =  remember { mutableStateOf(!(act?.hasUSBPermission()?:false)) }
 
     //val screenWidth = remember { mutableStateOf(context.resources.displayMetrics.widthPixels) }
     //val screenHeight = remember { mutableStateOf(context.resources.displayMetrics.heightPixels) }
 
     LaunchedEffect(Unit) {
-        context?.let { viewmodel.initCameraClient(it, imgSize.width, imgSize.height)}
+        act?.let { viewmodel.initCameraClient(it, imgSize.width, imgSize.height)}
     }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(color = Color.Black),
+            .background(color = Color.Black)
+            .padding(paddingValues = paddingValues),
         contentAlignment = Alignment.Center
     ) {
         myCamClient.cameraclient?.let {
-            UVCCameraPreview(it, viewmodel)
+            UVCCameraPreview(it, viewmodel, paddingValues)
+        }
+
+        if(showRefresh) {
+            RefreshButton() {
+                act?.let {
+                    onSetShowRefresh(!it.hasUSBPermission())
+                    it.finish()
+                    it.startActivity(it.getIntent())
+                    if (Build.VERSION.SDK_INT >= 34) {
+                        it.overrideActivityTransition(
+                            Activity.OVERRIDE_TRANSITION_OPEN,
+                            0,
+                            0
+                        )
+                    }else{
+                        it.overridePendingTransition(0,0)
+                    }
+                }
+            }
         }
 
         DrawBarcode( barcodes, imgSize.width, imgSize.height, screenSize.width, screenSize.height )
@@ -271,7 +532,7 @@ fun MyApp(viewmodel: myViewModel) {
         Column(Modifier.align(Alignment.BottomCenter)) {
             displayMessage(myText)
         }
-        Column(
+        /*Column(
             Modifier
                 .align(Alignment.CenterStart)
                 .padding(horizontal = 5.dp)) {
@@ -282,7 +543,7 @@ fun MyApp(viewmodel: myViewModel) {
                 .align(Alignment.CenterEnd)
                 .padding(horizontal = 5.dp)) {
             RadioButtonPreviewSize(previewsize,viewmodel)
-        }
+        }*/
         Column(
             Modifier
                 .align(Alignment.TopEnd)
@@ -296,6 +557,22 @@ fun MyApp(viewmodel: myViewModel) {
                 fontSize = 30.sp
             )
         }
+    }
+}
+@Composable
+fun RefreshButton( onClick: () -> Unit) {
+    Box(modifier = Modifier.wrapContentSize()) {
+        IconButton(onClick = {
+            onClick()
+        }) {
+            Icon(
+                modifier = Modifier.size(200.dp),
+                imageVector = Icons.Filled.Refresh,
+                contentDescription = "Refresh",
+                tint = Color.White
+            )
+        }
+
     }
 }
 
@@ -620,14 +897,22 @@ fun displayMessage(barcode: String) {
 }
 
 @Composable
-fun UVCCameraPreview(cameraClient: CameraClient, viewmodel: myViewModel) {
+fun UVCCameraPreview(
+    cameraClient: CameraClient,
+    viewmodel: myViewModel,
+    paddingValues: PaddingValues
+) {
     val context = LocalContext.current
+    val act = context as MainActivity
+    val topOffset = paddingValues.calculateTopPadding().dpToPx()
     AndroidView(
         modifier = Modifier.onGloballyPositioned {
             viewmodel.setOffsetX(it.positionInRoot().x)
+            viewmodel.setOffsetY(it.positionInRoot().y-topOffset )
         },
         factory = { ctx ->
-            AspectRatioSurfaceView(ctx).apply {
+            AspectRatioSurfaceView2(ctx).apply {
+                setAspectRatio(viewmodel.lastPreviewSize.width,viewmodel.lastPreviewSize.height)
                 this.holder.addCallback(object : SurfaceHolder.Callback {
                     override fun surfaceCreated(holder: SurfaceHolder) {
                         Log.i(MainActivity.TAG, "surfaceCreated ")
@@ -641,7 +926,7 @@ fun UVCCameraPreview(cameraClient: CameraClient, viewmodel: myViewModel) {
                         width: Int,
                         height: Int
                     ) {
-                        Log.i(MainActivity.TAG, "surfaceChanged " + width + "x" + height)
+                        Log.i(MainActivity.TAG, "surfaceChanged " + width + "x" + height+"   "+ act.hasUSBPermission())
                         viewmodel.setScreenSize(width, height)
                         cameraClient.setRenderSize(width, height)
                     }
@@ -678,6 +963,12 @@ fun DrawFace(
                 screenWidth,
                 screenHeight
             )
+            if(topLeft.x<0 || topLeft.y <0 ||topLeft.x>screenWidth||topLeft.y>screenHeight){
+                Log.v(MainActivity.TAG,"Error " +topLeft.x+"-"+topLeft.y)
+                Log.v(MainActivity.TAG,"boundingBox " +boundingBox.topLeft.x+"-"+boundingBox.topLeft.y)
+                Log.v(MainActivity.TAG,"screenWidth " +screenWidth+"-"+screenHeight)
+                return@forEachIndexed
+            }
             val size =
                 adjustSize(boundingBox.size, imageWidth, imageHeight, screenWidth, screenHeight)
             drawBounds(topLeft, size, Color.Yellow, 5f)
@@ -716,7 +1007,7 @@ fun DrawFace(
                 ),
                 topLeft = Offset(
                     x = topLeft.x+ gOffsetX,
-                    y = topLeft.y
+                    y = topLeft.y+ gOffsetY
                 )
             )
         }
@@ -780,6 +1071,12 @@ fun DrawFaceMesh(
                 screenWidth,
                 screenHeight
             )
+            if(topLeft.x<0 || topLeft.y <0 ||topLeft.x>screenWidth||topLeft.y>screenHeight){
+                Log.v(MainActivity.TAG,"Error " +topLeft.x+"-"+topLeft.y)
+                Log.v(MainActivity.TAG,"boundingBox " +boundingBox.topLeft.x+"-"+boundingBox.topLeft.y)
+                Log.v(MainActivity.TAG,"screenWidth " +screenWidth+"-"+screenHeight)
+                return@forEach
+            }
             val size =
                 adjustSize(boundingBox.size, imageWidth, imageHeight, screenWidth, screenHeight)
             drawBounds(topLeft, size, Color.Yellow, 5f)
@@ -872,7 +1169,7 @@ fun DrawBarcode(
                     ),
                     topLeft = Offset(
                         x = topLeft.x+ gOffsetX,
-                        y = topLeft.y-25.sp.toPx()
+                        y = topLeft.y-25.sp.toPx()+ gOffsetY
                     )
                 )
             }
@@ -917,7 +1214,7 @@ fun DrawRecognizedText(
                         ),
                         topLeft = Offset(
                             x = topLeft.x+ gOffsetX,
-                            y = topLeft.y-25.sp.toPx()
+                            y = topLeft.y-25.sp.toPx()+ gOffsetY
                         )
                     )
                 }
@@ -925,28 +1222,6 @@ fun DrawRecognizedText(
             }
         }
     }
-}
-fun captureImage(cameraClient: CameraClient, context: Context) {
-
-    cameraClient.captureImage(object : ICaptureCallBack {
-        override fun onBegin() {
-            Toast.makeText(context, "onBegin", Toast.LENGTH_SHORT).show()
-            Log.i(MainActivity.TAG, "onBegin")
-
-        }
-
-        override fun onError(error: String?) {
-            Toast.makeText(context, "onError", Toast.LENGTH_SHORT).show()
-            ToastUtils.show(error ?: "未知异常")
-            Log.i(MainActivity.TAG, "onError")
-        }
-
-        override fun onComplete(path: String?) {
-            Toast.makeText(context, "onComplete", Toast.LENGTH_SHORT).show()
-            ToastUtils.show("OnComplete")
-            Log.i(MainActivity.TAG, "onComplete")
-        }
-    })
 }
 
 @Composable
@@ -962,97 +1237,96 @@ fun DrawDetectedSegmentation(
 }
 
 @Composable
-fun RadioButtonMLType(viewmodel: myViewModel) {
-    val radioOptions = myViewModel.Analyzers
-    //val (selectedOption, onOptionSelected) = remember { mutableStateOf(radioOptions[0]) }
-    val indxAnalyzer by viewmodel.indxAnalyzer.collectAsState()
-    Column(
-        modifier = Modifier
-            .padding(3.dp)
-            .clip(RoundedCornerShape(15.dp, 15.dp, 15.dp, 15.dp))
-            .background(Color.White)
+fun popupMenuSelectMLType(viewmodel: myViewModel,onDone: () -> Unit){
+    val radioOptions by  remember { mutableStateOf(myViewModel.Analyzers) }
+
+    DropdownMenu(
+        modifier = Modifier.padding(10.dp),
+        expanded = true,
+        onDismissRequest = { onDone() }
     ) {
-        radioOptions.forEachIndexed {index, text ->
-            Row(
-                Modifier
-                    .wrapContentSize()
-                    .selectable(
-                        selected = (index == indxAnalyzer),
-                        onClick = {
-                            viewmodel.setAnalyzer(index)
-                        }
+        radioOptions.forEachIndexed { index, text ->
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text,
+                        fontSize = 20.sp
                     )
-                    .padding(horizontal = 16.dp)
-            ) {
-                RadioButton(
-                    selected = (index == indxAnalyzer),
-                    onClick = {
-                        viewmodel.setAnalyzer(index)
-                    }
-                )
-                Text(
-                    text = text,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.align(Alignment.CenterVertically)
-                )
-            }
+                },
+                onClick = {
+                    viewmodel.setAnalyzer(index)
+                    onDone()
+                }
+            )
         }
     }
+
 }
+
 fun PreviewSize.name():String{
     return this.width.toString()+"x"+this.height.toString()
 }
+
 @Composable
-fun RadioButtonPreviewSize(previewsize: List<PreviewSize>, viewmodel: myViewModel) {
+fun popupMenuPreviewSize(viewmodel: myViewModel,onDone: () -> Unit){
+    val previewsize by viewmodel.previewsize.collectAsState()
 
-    val context = LocalContext.current
-    val (selectedOption, onOptionSelected) = remember { mutableStateOf("") }
-
-    Column(
-        modifier = Modifier
-            .padding(3.dp)
-            .clip(RoundedCornerShape(15.dp, 15.dp, 15.dp, 15.dp))
-            .background(Color.White)
+    DropdownMenu(
+        modifier = Modifier.padding(10.dp),
+        expanded = true,
+        onDismissRequest = { onDone() }
     ) {
         previewsize.forEachIndexed { index, size ->
-            val text = size.name()
-            Row(
-                Modifier
-                    .wrapContentSize()
-                    .selectable(
-                        selected = (text == selectedOption),
-                        onClick = {
-                            onOptionSelected(text)
-                            viewmodel.updatePreviewSize(context, index, previewsize[index])
-                        }
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        size.name(),
+                        fontSize = 20.sp
                     )
-                    .padding(horizontal = 16.dp)
-            ) {
-                RadioButton(
-                    selected = (text == selectedOption),
-                    onClick = {
-                        onOptionSelected(text)
-                        viewmodel.updatePreviewSize(context,index, previewsize[index])
-                    }
-                )
-                Text(
-                    text = text,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.align(Alignment.CenterVertically)
-                )
-            }
+                },
+                onClick = {
+                    onDone()
+                    viewmodel.updatePreviewSize(previewsize[index])
+                }
+            )
         }
     }
+
 }
+
 @Preview(showBackground = true, device = "spec:width=1024dp,height=768dp,dpi=160")
 @Composable
-fun DefaultPreview() {
+fun DefaultPreviewTablet() {
     val viewmodel = myViewModel(myApp())
     CameraUVCTestTheme {
         Box(
             modifier = Modifier.wrapContentSize()
         ) {
-            MyApp(viewmodel)
+            AppBody(viewmodel)
+        }
+    }
+}
+
+@Preview(showBackground = true, device = "spec:width=600dp,height=1024dp,dpi=160")
+@Composable
+fun DefaultPreviewPhone() {
+    val viewmodel = myViewModel(myApp())
+    CameraUVCTestTheme {
+        Box(
+            modifier = Modifier.wrapContentSize()
+        ) {
+            AppBody(viewmodel)
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun Preview_DialogSelectMLType() {
+    val viewmodel = myViewModel(myApp())
+    CameraUVCTestTheme {
+        popupMenuSelectMLType(viewmodel) {
+
         }
     }
 }

@@ -5,7 +5,10 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.PointF
 import androidx.annotation.ColorInt
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import com.google.mlkit.vision.pose.Pose
 import com.google.mlkit.vision.segmentation.SegmentationMask
 import com.jiangdg.ausbc.CameraClient
@@ -78,4 +81,5 @@ fun maskColorsFromByteBuffer(segmentationMask: SegmentationMask): IntArray {
     }
     return colors
 }
-
+@Composable
+fun Dp.dpToPx() = with(LocalDensity.current) { this@dpToPx.toPx() }

@@ -39,6 +39,7 @@ import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.innocomm.mlkit.camerauvctest.utils.gOffsetX
+import com.innocomm.mlkit.camerauvctest.utils.gOffsetY
 import com.innocomm.mlkit.camerauvctest.utils.getResizedBitmap
 import com.innocomm.mlkit.camerauvctest.utils.maskColorsFromByteBuffer
 import com.innocomm.mlkit.camerauvctest.utils.myCameraClient
@@ -86,7 +87,8 @@ class myViewModel(val context: Application) : ViewModel() {
             "Image Labeling Custom",
             "Object detection",
             "Pose detection",
-            "Selfie segmentation" )
+            "Selfie segmentation"
+        )
     }
 
     var cameraClient: CameraClient? = null
@@ -94,7 +96,9 @@ class myViewModel(val context: Application) : ViewModel() {
     private var mFPSTime: Long = 0
 
     fun process(data: ByteArray) {
-        if (previewSizeList == null){ dumpPreViewSize() }
+        if (previewSizeList == null) {
+            dumpPreViewSize()
+        }
 
         if (SystemClock.uptimeMillis() - mFPSTime > 1000) {
             mFPSTime = SystemClock.uptimeMillis()
@@ -116,10 +120,11 @@ class myViewModel(val context: Application) : ViewModel() {
             8 -> detectPose(data)
             9 -> {
                 detectSegmentation(data)
-                if(!_showSelfieSegment.value) _showSelfieSegment.value = true
+                if (!_showSelfieSegment.value) _showSelfieSegment.value = true
             }
         }
     }
+
     private val TAG: String = "myViewModel"
 
     private val digitPattern: Pattern = Pattern.compile("\\d{3,4}")
@@ -130,9 +135,6 @@ class myViewModel(val context: Application) : ViewModel() {
 
     private val _fps = MutableStateFlow(0)
     val fps: StateFlow<Int> = _fps.asStateFlow()
-
-    private val _Xoffset = MutableStateFlow(0F)
-    val Xoffset: StateFlow<Float> = _Xoffset.asStateFlow()
 
     private val _showSelfieSegment = MutableStateFlow(false)
     val showSelfieSegment: StateFlow<Boolean> = _showSelfieSegment.asStateFlow()
@@ -155,24 +157,24 @@ class myViewModel(val context: Application) : ViewModel() {
     private val _screenSize = MutableStateFlow(Size(0, 0))
     val screenSize: StateFlow<Size> = _screenSize.asStateFlow()
 
-    private val _poses = MutableStateFlow<myPose>(myPose(false,null))
+    private val _poses = MutableStateFlow<myPose>(myPose(false, null))
     val poses: StateFlow<myPose> = _poses.asStateFlow()
 
-    private val _camclient = MutableStateFlow<myCameraClient>(myCameraClient(false,null))
+    private val _camclient = MutableStateFlow<myCameraClient>(myCameraClient(false, null))
     val camclient: StateFlow<myCameraClient> = _camclient.asStateFlow()
 
-    var lastPreviewSize = PreviewSize(640,480)
+    var lastPreviewSize = PreviewSize(640, 480)
     private val _imgSize = MutableStateFlow<PreviewSize>(lastPreviewSize)
     val imgSize: StateFlow<PreviewSize> = _imgSize.asStateFlow()
 
     private val _previewsize = MutableStateFlow(emptyList<PreviewSize>())
     val previewsize: StateFlow<List<PreviewSize>> = _previewsize.asStateFlow()
-    var previewSizeList : ArrayList<PreviewSize>? = null
+    var previewSizeList: ArrayList<PreviewSize>? = null
 
     private val _indxAnalyzer = MutableStateFlow(0)
     val indxAnalyzer: StateFlow<Int> = _indxAnalyzer.asStateFlow()
 
-    private val _segmask = MutableStateFlow(Bitmap.createBitmap(1,1,Bitmap.Config.ARGB_8888))
+    private val _segmask = MutableStateFlow(Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888))
     val segmask: StateFlow<Bitmap> = _segmask.asStateFlow()
 
     //Barcode
@@ -188,7 +190,8 @@ class myViewModel(val context: Application) : ViewModel() {
         .enableTracking()
         .build()
 
-    private val faceDetector by lazy { FaceDetection.getClient(optionsFace)}
+    private val faceDetector by lazy { FaceDetection.getClient(optionsFace) }
+
     //Face Mesh
     private val meshDetector by lazy { FaceMeshDetection.getClient() }
 
@@ -229,14 +232,15 @@ class myViewModel(val context: Application) : ViewModel() {
     private val optionsPose = PoseDetectorOptions.Builder()
         .setDetectorMode(PoseDetectorOptions.STREAM_MODE)
         .build()
-    private val poseDetector  by lazy { PoseDetection.getClient(optionsPose) }
+    private val poseDetector by lazy { PoseDetection.getClient(optionsPose) }
+
     //Selfie Segmentation
     private val optionsSelfieSegment =
         SelfieSegmenterOptions.Builder()
-            .setDetectorMode( SelfieSegmenterOptions.STREAM_MODE )
+            .setDetectorMode(SelfieSegmenterOptions.STREAM_MODE)
             //.enableRawSizeMask()
             .build()
-    private val segmenter  by lazy { Segmentation.getClient(optionsSelfieSegment) }
+    private val segmenter by lazy { Segmentation.getClient(optionsSelfieSegment) }
 
     val handler = object : Handler(Looper.getMainLooper()) {
         override fun handleMessage(msg: Message) {
@@ -263,7 +267,7 @@ class myViewModel(val context: Application) : ViewModel() {
                     resetDataRequired = false
                     resetDetectedData()
                 }
-                if(myAnalyzer == 0){
+                if (myAnalyzer == 0) {
                     mlkiProcessing = false
                     return@launch
                 }
@@ -331,13 +335,12 @@ class myViewModel(val context: Application) : ViewModel() {
             try {
                 faceDetector.process(imageValue)
                     .addOnSuccessListener { faces ->
-                        if(myAnalyzer == 0){
+                        if (myAnalyzer == 0) {
                             onDone(false)
                             return@addOnSuccessListener
                         }
-                        val list = ArrayList<Face>()
-                        list.addAll(faces)
-                        _faces.value = list
+
+                        _faces.value = faces
                     }.addOnFailureListener { failure ->
                         Log.v(TAG, "addOnFailureListener: " + failure.toString())
                         onDone(false)
@@ -351,14 +354,13 @@ class myViewModel(val context: Application) : ViewModel() {
         }
 
     }
+
     fun detectFaceMesh(data: ByteArray) {
         processWithControlledFPS(data) { imageValue, onDone ->
             try {
                 meshDetector.process(imageValue)
                     .addOnSuccessListener { meshes ->
-                        val list = ArrayList<FaceMesh>()
-                        list.addAll(meshes)
-                        _facemesh.value = list
+                        _facemesh.value = meshes
                     }.addOnFailureListener { failure ->
                         Log.v(TAG, "addOnFailureListener: " + failure.toString())
                         onDone(false)
@@ -397,6 +399,7 @@ class myViewModel(val context: Application) : ViewModel() {
         }
 
     }
+
     fun detectImageLabelCustom(data: ByteArray) {
         processWithControlledFPS(data) { imageValue, onDone ->
             try {
@@ -456,7 +459,7 @@ class myViewModel(val context: Application) : ViewModel() {
             try {
                 poseDetector.process(imageValue)
                     .addOnSuccessListener { results ->
-                        _poses.tryEmit(myPose(true,results))
+                        _poses.tryEmit(myPose(true, results))
                     }.addOnFailureListener { failure ->
                         Log.v(TAG, "addOnFailureListener: " + failure.toString())
                         onDone(false)
@@ -469,15 +472,23 @@ class myViewModel(val context: Application) : ViewModel() {
             }
         }
     }
+
     private fun detectSegmentation(data: ByteArray) {
         processWithControlledFPS(data) { imageValue, onDone ->
             try {
                 segmenter.process(imageValue)
                     .addOnSuccessListener { segmentationMask ->
                         val bitmap = Bitmap.createBitmap(
-                            maskColorsFromByteBuffer(segmentationMask), segmentationMask.width, segmentationMask.height, Bitmap.Config.ARGB_8888
+                            maskColorsFromByteBuffer(segmentationMask),
+                            segmentationMask.width,
+                            segmentationMask.height,
+                            Bitmap.Config.ARGB_8888
                         )
-                        _segmask.value = getResizedBitmap(bitmap,screenSize.value.width,_screenSize.value.height)
+                        _segmask.value = getResizedBitmap(
+                            bitmap,
+                            screenSize.value.width,
+                            _screenSize.value.height
+                        )
                     }.addOnFailureListener { failure ->
                         Log.v(TAG, "addOnFailureListener: " + failure.toString())
                         onDone(false)
@@ -498,10 +509,15 @@ class myViewModel(val context: Application) : ViewModel() {
     }
 
     fun setOffsetX(offset: Float) {
-        if(gOffsetX == offset) return
-        Log.i(MainActivity.TAG, "onGloballyPositioned " +offset)
+        if (gOffsetX == offset) return
+        Log.i(MainActivity.TAG, "onGloballyPositioned X " + offset)
         gOffsetX = offset
-        _Xoffset.value = offset
+    }
+
+    fun setOffsetY(offset: Float) {
+        if (gOffsetY == offset) return
+        Log.i(MainActivity.TAG, "onGloballyPositioned Y " + offset)
+        gOffsetY = offset
     }
 
     fun setAnalyzer(index: Int) {
@@ -514,15 +530,15 @@ class myViewModel(val context: Application) : ViewModel() {
     fun resetDetectedData() {
         _text.value = ""
         _barcodes.value = ArrayList<Barcode>()
-        _texts.value =  ArrayList<Text>()
-        _faces.value =  ArrayList<Face>()
+        _texts.value = ArrayList<Text>()
+        _faces.value = ArrayList<Face>()
         _facemesh.value = ArrayList<FaceMesh>()
         _objects.value = ArrayList<DetectedObject>()
-        _poses.value = myPose(false,null)
+        _poses.value = myPose(false, null)
         _showSelfieSegment.value = false
     }
 
-    fun dumpPreViewSize(){
+    fun dumpPreViewSize() {
         Log.v(TAG, "dumpPreViewSize()")
         viewModelScope.launch(Dispatchers.IO) {
             cameraClient?.getAllPreviewSizes()?.let {
@@ -530,7 +546,7 @@ class myViewModel(val context: Application) : ViewModel() {
                     val list = ArrayList<PreviewSize>()
                     list.addAll(it)
                     previewSizeList = list
-                    _previewsize.value= list
+                    _previewsize.value = list
                     list.forEach {
                         Log.v(TAG, "Preview " + it.width + "x" + it.height)
                     }
@@ -539,25 +555,28 @@ class myViewModel(val context: Application) : ViewModel() {
         }
     }
 
-    fun updatePreviewSize(ctx: Context,index: Int,previewsize: PreviewSize){
-        Log.v(TAG, "updatePreviewSize() "+index)
+    fun updatePreviewSize(previewsize: PreviewSize?) {
+        Log.v(TAG, "updatePreviewSize() ")
         setAnalyzer(0)
         shouldReinitCamera = true
-        lastPreviewSize = previewsize.copy()
+        previewsize?.let {
+            lastPreviewSize = it.copy()
+        }
+        Log.v(TAG, "updatePreviewSize() " + lastPreviewSize?.toString())
         _camclient.value = myCameraClient(false, null)
     }
 
     var shouldReinitCamera = false
-    fun shouldReInitCamera(ctx: Context){
-         if(shouldReinitCamera) {
+    fun shouldReInitCamera(ctx: Context) {
+        if (shouldReinitCamera) {
             shouldReinitCamera = false
-            initCameraClient(ctx,lastPreviewSize.width,lastPreviewSize.height)
+            initCameraClient(ctx, lastPreviewSize.width, lastPreviewSize.height)
         }
     }
 
-    fun initCameraClient(ctx: Context,width:Int,height:Int){
-        Log.v(TAG, "initCameraClient: " + width+"x"+height)
-        _imgSize.value = PreviewSize(width,height)
+    fun initCameraClient(ctx: Context, width: Int, height: Int) {
+        Log.v(TAG, "initCameraClient: " + width + "x" + height)
+        _imgSize.value = PreviewSize(width, height)
         val cameraUvcStrategy = CameraUvcStrategy(ctx)
         val list = cameraUvcStrategy.getUsbDeviceList()
         list?.let {
@@ -575,6 +594,7 @@ class myViewModel(val context: Application) : ViewModel() {
             }
         })
 
+
         _camclient.value = myCameraClient(true, CameraClient.newBuilder(ctx).apply {
             setEnableGLES(true)
             setRawImage(false)
@@ -586,7 +606,6 @@ class myViewModel(val context: Application) : ViewModel() {
                     .setPreviewHeight(height)
                     .create()
             )
-            //setRawImage(true)
             openDebug(true)
 
         }.build())

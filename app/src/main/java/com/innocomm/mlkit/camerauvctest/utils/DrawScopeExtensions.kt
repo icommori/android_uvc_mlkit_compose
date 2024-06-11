@@ -10,12 +10,13 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import com.google.mlkit.vision.pose.PoseLandmark
 
 var gOffsetX = 0F
+var gOffsetY = 0F
 
 fun DrawScope.drawLandmark(landmark: PointF, color: Color, radius: Float) {
     drawCircle(
         color = color,
         radius = radius,
-        center = Offset(landmark.x+ gOffsetX, landmark.y),
+        center = Offset(landmark.x+ gOffsetX, landmark.y+ gOffsetY),
     )
 }
 
@@ -23,7 +24,7 @@ fun DrawScope.drawBounds(topLeft: PointF, size: Size, color: Color, stroke: Floa
     drawRect(
         color = color,
         size = size,
-        topLeft = Offset(topLeft.x+ gOffsetX, topLeft.y),
+        topLeft = Offset(topLeft.x+ gOffsetX, topLeft.y+ gOffsetY),
         style = Stroke(width = stroke)
     )
 }
@@ -32,9 +33,9 @@ fun DrawScope.drawTriangle(points: List<PointF>, color: Color, stroke: Float) {
     if (points.size < 3) return
     drawPath(
         path = Path().apply {
-            moveTo(points[0].x+ gOffsetX, points[0].y)
-            lineTo(points[1].x+ gOffsetX, points[1].y)
-            lineTo(points[2].x+ gOffsetX, points[2].y)
+            moveTo(points[0].x+ gOffsetX, points[0].y+ gOffsetY)
+            lineTo(points[1].x+ gOffsetX, points[1].y+ gOffsetY)
+            lineTo(points[2].x+ gOffsetX, points[2].y+ gOffsetY)
             close()
         },
         color = color,
@@ -67,8 +68,8 @@ fun DrawScope.drawLine2(startp: PoseLandmark?, endp: PoseLandmark?, color: Color
         //Log.v("innocomm","screen: "+imageWidth+"-"+imageHeight+ "->"+screenWidth+"-"+screenHeight)
         this.drawLine(
             color = color,
-            start = Offset(topLeft.x+gOffsetX,topLeft.y),
-            end = Offset(bottomright.x+gOffsetX,bottomright.y),
+            start = Offset(topLeft.x+gOffsetX,topLeft.y+ gOffsetY),
+            end = Offset(bottomright.x+gOffsetX,bottomright.y+ gOffsetY),
             strokeWidth = stroke
         )
     }
