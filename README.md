@@ -49,6 +49,7 @@ tensorflow/efficientnet
 
 # Screen Capture
 
+<img src="images/detectAll001.png" width="640" height="360">
 <img src="images/detectImageLabel.png" width="640" height="360"> <img src="images/detectImageLabelCustom.png" width="640" height="360">
 <img src="images/detectObject.png" width="640" height="360">
 <img src="images/detectPose.png" width="640" height="360">
