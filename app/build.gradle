@@ -8,11 +8,11 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.example.camerauvctest"
+        applicationId "com.innocomm.mlkit.camerauvctest"
         minSdk 21
         targetSdk 33
-        versionCode 3
-        versionName "1.0.0.2"
+        versionCode 5
+        versionName "1.0.0.3"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

@@ -10,6 +10,7 @@ import android.os.Message
 import android.os.SystemClock
 import android.util.Log
 import android.util.Size
+import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
@@ -54,8 +55,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.util.Calendar
 import java.util.regex.Pattern
+
+data class AnalyzerState(var processing: Boolean, var lastProcessTime: Long, var counter: Int,var lastFPS: Int)
 
 @SuppressLint("MissingPermission")
 class myViewModel(val context: Application) : ViewModel() {
@@ -78,23 +80,25 @@ class myViewModel(val context: Application) : ViewModel() {
         }
 
         val Analyzers = arrayOf(
-            "None",
             "BarCode",
-            "FaceDetection",
+            "Face Detection",
             "FaceMesh",
-            "TextRecognizer",
+            "Text Recognizer",
             "Image Labeling",
             "Image Labeling Custom",
-            "Object detection",
-            "Pose detection",
-            "Selfie segmentation"
+            "Object Detection",
+            "Pose Detection",
+            "Selfie Segmentation"
         )
-    }
 
+    }
+    val analyzerState  = Array(Analyzers.size) { AnalyzerState(false,0,0,0) }
     var cameraClient: CameraClient? = null
     private var mFPSCounter = 0 // the value to count
     private var mFPSTime: Long = 0
-
+    public val selectedAnalyzer = ArrayList<Int>()
+    val openAnalyzerDialog = mutableStateOf(false)
+    var resetRequest = false
     fun process(data: ByteArray) {
         if (previewSizeList == null) {
             dumpPreViewSize()
@@ -104,24 +108,32 @@ class myViewModel(val context: Application) : ViewModel() {
             mFPSTime = SystemClock.uptimeMillis()
             _fps.value = mFPSCounter
             mFPSCounter = 0
+            dumpFPS()
         } else {
             mFPSCounter++
         }
 
-        when (myAnalyzer) {
-            0 -> resetDetectedData()
-            1 -> detectBarCode(data)
-            2 -> detectFace(data)
-            3 -> detectFaceMesh(data)
-            4 -> detectText(data)
-            5 -> detectImageLabel(data)
-            6 -> detectImageLabelCustom(data)
-            7 -> detectObject(data)
-            8 -> detectPose(data)
-            9 -> {
-                detectSegmentation(data)
+        val s = selectedAnalyzer.map { when (it) {
+            0 -> detectBarCode(it,data)
+            1 -> detectFace(it,data)
+            2 -> detectFaceMesh(it,data)
+            3 -> detectText(it,data)
+            4 -> detectImageLabel(it,data)
+            5 -> detectImageLabelCustom(it,data)
+            6 -> detectObject(it,data)
+            7 -> detectPose(it,data)
+            8 -> {
+                detectSegmentation(it,data)
                 if (!_showSelfieSegment.value) _showSelfieSegment.value = true
             }
+        } }.toSet()
+        if (s.size==0) {
+            if (resetRequest) {
+                resetDetectedData()
+                resetRequest=false
+            }
+        }else{
+            resetRequest = true
         }
     }
 
@@ -135,6 +147,9 @@ class myViewModel(val context: Application) : ViewModel() {
 
     private val _fps = MutableStateFlow(0)
     val fps: StateFlow<Int> = _fps.asStateFlow()
+
+    private val _analyzerFps = MutableStateFlow("")
+    val analyzerFps: StateFlow<String> = _analyzerFps.asStateFlow()
 
     private val _showSelfieSegment = MutableStateFlow(false)
     val showSelfieSegment: StateFlow<Boolean> = _showSelfieSegment.asStateFlow()
@@ -171,11 +186,14 @@ class myViewModel(val context: Application) : ViewModel() {
     val previewsize: StateFlow<List<PreviewSize>> = _previewsize.asStateFlow()
     var previewSizeList: ArrayList<PreviewSize>? = null
 
-    private val _indxAnalyzer = MutableStateFlow(0)
-    val indxAnalyzer: StateFlow<Int> = _indxAnalyzer.asStateFlow()
-
     private val _segmask = MutableStateFlow(Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888))
     val segmask: StateFlow<Bitmap> = _segmask.asStateFlow()
+
+    private val _benchmarkResult = MutableStateFlow(emptyList<String>())
+    val benchmarkResult: StateFlow<List<String>> = _benchmarkResult.asStateFlow()
+
+    private val _camerabusy = MutableStateFlow(false)
+    val camerabusy: StateFlow<Boolean> = _camerabusy.asStateFlow()
 
     //Barcode
     private val optionsBarcode = BarcodeScannerOptions.Builder().build()
@@ -250,25 +268,37 @@ class myViewModel(val context: Application) : ViewModel() {
         }
     }
 
-    var mlkiProcessing = false
-    var lastProcessTime = 0L
-    var myAnalyzer = 0
-    var resetDataRequired = false
+    fun dumpFPS(){
+        if(selectedAnalyzer.size==0) return
+        val result = selectedAnalyzer.asSequence()
+            .joinToString(separator = ""){
+                Analyzers[it] + ": "+analyzerState[it].lastFPS +"/sec\n"
+            }
+        Log.v(TAG,""+selectedAnalyzer.size+": "+result)
+        _analyzerFps.value = result
+    }
+
     fun processWithControlledFPS(
+        analyzerIdx: Int,
         data: ByteArray,
         run: (image: InputImage, cb: (Boolean) -> Unit) -> Unit
     ) {
         viewModelScope.launch(Dispatchers.IO) {
+            val state  = analyzerState[analyzerIdx]
+            if (!state.processing) {
+                state.processing = true
 
-            if (!mlkiProcessing) {
-                lastProcessTime = Calendar.getInstance().timeInMillis
-                mlkiProcessing = true
-                if (resetDataRequired) {
-                    resetDataRequired = false
-                    resetDetectedData()
+                if (SystemClock.uptimeMillis() - state.lastProcessTime > 1000) {
+                    state.lastProcessTime = SystemClock.uptimeMillis()
+                    state.lastFPS = state.counter
+                    //Log.v(TAG,"FPS "+Analyzers[analyzerIdx]+": "+state.lastFPS)
+                    state.counter = 0
+                } else {
+                    state.counter++
                 }
-                if (myAnalyzer == 0) {
-                    mlkiProcessing = false
+
+                if (selectedAnalyzer.size == 0) {
+                    state.processing = false
                     return@launch
                 }
                 val imageValue = InputImage.fromByteArray(
@@ -279,17 +309,21 @@ class myViewModel(val context: Application) : ViewModel() {
                     InputImage.IMAGE_FORMAT_NV21 // or IMAGE_FORMAT_YV12
                 )
                 run(imageValue) {
-                    mlkiProcessing = false
+                    state.processing = false
                 }
             }
         }
     }
 
-    fun detectBarCode(data: ByteArray) {
-        processWithControlledFPS(data) { imageValue, onDone ->
+    fun detectBarCode(idx: Int,data: ByteArray) {
+        processWithControlledFPS(idx,data) { imageValue, onDone ->
             try {
                 scanner.process(imageValue)
                     .addOnSuccessListener { barcodes ->
+                        if (!selectedAnalyzer.contains(idx)) {
+                            onDone(false)
+                            return@addOnSuccessListener
+                        }
                         _barcodes.value = barcodes
                     }.addOnFailureListener { failure ->
                         failure.printStackTrace()
@@ -307,12 +341,16 @@ class myViewModel(val context: Application) : ViewModel() {
         }
     }
 
-    fun detectText(data: ByteArray) {
-        processWithControlledFPS(data) { imageValue, onDone ->
+    fun detectText(idx: Int,data: ByteArray) {
+        processWithControlledFPS(idx,data) { imageValue, onDone ->
             try {
                 textRecognizer.process(imageValue)
                     .addOnSuccessListener { text ->
-                        Log.v(TAG, "Text: " + text.text)
+                        if (!selectedAnalyzer.contains(idx)) {
+                            onDone(false)
+                            return@addOnSuccessListener
+                        }
+                        //Log.v(TAG, "Text: " + text.text)
                         val list = ArrayList<Text>()
                         list.add(text)
                         _texts.value = list
@@ -330,12 +368,12 @@ class myViewModel(val context: Application) : ViewModel() {
         }
     }
 
-    fun detectFace(data: ByteArray) {
-        processWithControlledFPS(data) { imageValue, onDone ->
+    fun detectFace(idx: Int,data: ByteArray) {
+        processWithControlledFPS(idx,data) { imageValue, onDone ->
             try {
                 faceDetector.process(imageValue)
                     .addOnSuccessListener { faces ->
-                        if (myAnalyzer == 0) {
+                        if (!selectedAnalyzer.contains(idx)) {
                             onDone(false)
                             return@addOnSuccessListener
                         }
@@ -355,11 +393,15 @@ class myViewModel(val context: Application) : ViewModel() {
 
     }
 
-    fun detectFaceMesh(data: ByteArray) {
-        processWithControlledFPS(data) { imageValue, onDone ->
+    fun detectFaceMesh(idx: Int,data: ByteArray) {
+        processWithControlledFPS(idx,data) { imageValue, onDone ->
             try {
                 meshDetector.process(imageValue)
                     .addOnSuccessListener { meshes ->
+                        if (!selectedAnalyzer.contains(idx)) {
+                            onDone(false)
+                            return@addOnSuccessListener
+                        }
                         _facemesh.value = meshes
                     }.addOnFailureListener { failure ->
                         Log.v(TAG, "addOnFailureListener: " + failure.toString())
@@ -375,11 +417,15 @@ class myViewModel(val context: Application) : ViewModel() {
 
     }
 
-    fun detectImageLabel(data: ByteArray) {
-        processWithControlledFPS(data) { imageValue, onDone ->
+    fun detectImageLabel(idx: Int,data: ByteArray) {
+        processWithControlledFPS(idx,data) { imageValue, onDone ->
             try {
                 labeler.process(imageValue)
                     .addOnSuccessListener { labels ->
+                        if (!selectedAnalyzer.contains(idx)) {
+                            onDone(false)
+                            return@addOnSuccessListener
+                        }
                         if (labels.size > 0) {
                             val result =
                                 labels.joinToString(separator = "\n") { it.text }
@@ -400,11 +446,15 @@ class myViewModel(val context: Application) : ViewModel() {
 
     }
 
-    fun detectImageLabelCustom(data: ByteArray) {
-        processWithControlledFPS(data) { imageValue, onDone ->
+    fun detectImageLabelCustom(idx: Int,data: ByteArray) {
+        processWithControlledFPS(idx,data) { imageValue, onDone ->
             try {
                 labelerCustom.process(imageValue)
                     .addOnSuccessListener { labels ->
+                        if (!selectedAnalyzer.contains(idx)) {
+                            onDone(false)
+                            return@addOnSuccessListener
+                        }
                         if (labels.size > 0) {
                             val result =
                                 labels.joinToString(separator = "\n") { it.text }
@@ -425,11 +475,15 @@ class myViewModel(val context: Application) : ViewModel() {
 
     }
 
-    fun detectObject(data: ByteArray) {
-        processWithControlledFPS(data) { imageValue, onDone ->
+    fun detectObject(idx: Int,data: ByteArray) {
+        processWithControlledFPS(idx,data) { imageValue, onDone ->
             try {
                 detectorObject.process(imageValue)
                     .addOnSuccessListener { objects ->
+                        if (!selectedAnalyzer.contains(idx)) {
+                            onDone(false)
+                            return@addOnSuccessListener
+                        }
                         if (objects.size > 0) {
                             //Log.v(TAG, "Found Objects: " + objects.size)
                             val list = ArrayList<DetectedObject>()
@@ -454,11 +508,15 @@ class myViewModel(val context: Application) : ViewModel() {
 
     }
 
-    private fun detectPose(data: ByteArray) {
-        processWithControlledFPS(data) { imageValue, onDone ->
+    private fun detectPose(idx: Int,data: ByteArray) {
+        processWithControlledFPS(idx,data) { imageValue, onDone ->
             try {
                 poseDetector.process(imageValue)
                     .addOnSuccessListener { results ->
+                        if (!selectedAnalyzer.contains(idx)) {
+                            onDone(false)
+                            return@addOnSuccessListener
+                        }
                         _poses.tryEmit(myPose(true, results))
                     }.addOnFailureListener { failure ->
                         Log.v(TAG, "addOnFailureListener: " + failure.toString())
@@ -473,11 +531,15 @@ class myViewModel(val context: Application) : ViewModel() {
         }
     }
 
-    private fun detectSegmentation(data: ByteArray) {
-        processWithControlledFPS(data) { imageValue, onDone ->
+    private fun detectSegmentation(idx: Int,data: ByteArray) {
+        processWithControlledFPS(idx,data) { imageValue, onDone ->
             try {
                 segmenter.process(imageValue)
                     .addOnSuccessListener { segmentationMask ->
+                        if (!selectedAnalyzer.contains(idx)) {
+                            onDone(false)
+                            return@addOnSuccessListener
+                        }
                         val bitmap = Bitmap.createBitmap(
                             maskColorsFromByteBuffer(segmentationMask),
                             segmentationMask.width,
@@ -520,13 +582,6 @@ class myViewModel(val context: Application) : ViewModel() {
         gOffsetY = offset
     }
 
-    fun setAnalyzer(index: Int) {
-        resetDataRequired = true
-        myAnalyzer = index
-        _indxAnalyzer.value = index
-        Log.v(TAG, "setAnalyzer: " + Analyzers[index] + " " + myAnalyzer)
-    }
-
     fun resetDetectedData() {
         _text.value = ""
         _barcodes.value = ArrayList<Barcode>()
@@ -536,6 +591,7 @@ class myViewModel(val context: Application) : ViewModel() {
         _objects.value = ArrayList<DetectedObject>()
         _poses.value = myPose(false, null)
         _showSelfieSegment.value = false
+        _analyzerFps.value = ""
     }
 
     fun dumpPreViewSize() {
@@ -557,12 +613,12 @@ class myViewModel(val context: Application) : ViewModel() {
 
     fun updatePreviewSize(previewsize: PreviewSize?) {
         Log.v(TAG, "updatePreviewSize() ")
-        setAnalyzer(0)
+        selectedAnalyzer.clear()
         shouldReinitCamera = true
         previewsize?.let {
             lastPreviewSize = it.copy()
         }
-        Log.v(TAG, "updatePreviewSize() " + lastPreviewSize?.toString())
+        Log.v(TAG, "updatePreviewSize() " + lastPreviewSize.toString())
         _camclient.value = myCameraClient(false, null)
     }
 
@@ -576,6 +632,7 @@ class myViewModel(val context: Application) : ViewModel() {
 
     fun initCameraClient(ctx: Context, width: Int, height: Int) {
         Log.v(TAG, "initCameraClient: " + width + "x" + height)
+        _camerabusy.value = true
         _imgSize.value = PreviewSize(width, height)
         val cameraUvcStrategy = CameraUvcStrategy(ctx)
         val list = cameraUvcStrategy.getUsbDeviceList()
@@ -588,6 +645,7 @@ class myViewModel(val context: Application) : ViewModel() {
         cameraUvcStrategy.addPreviewDataCallBack(object : IPreviewDataCallBack {
             override fun onPreviewData(data: ByteArray?, format: IPreviewDataCallBack.DataFormat) {
                 //Log.i(MainActivity.TAG, "onPreviewData "+data+" "+format)
+                if(_camerabusy.value) _camerabusy.value = false
                 data?.let {
                     process(it)
                 }
@@ -609,5 +667,6 @@ class myViewModel(val context: Application) : ViewModel() {
             openDebug(true)
 
         }.build())
+        _fps.value = 0
     }
 }

@@ -3,17 +3,20 @@ package com.innocomm.mlkit.camerauvctest
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.PointF
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
-import android.os.Build
 import android.os.Bundle
 import android.text.TextUtils
 import android.util.Log
 import android.view.SurfaceHolder
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -21,34 +24,46 @@ import androidx.activity.addCallback
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Api
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.ResetTv
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -56,7 +71,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -66,6 +80,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -75,9 +91,11 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.compositionContext
 import androidx.compose.ui.platform.createLifecycleAwareWindowRecomposer
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
@@ -86,9 +104,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.MultiplePermissionsState
 import com.google.accompanist.permissions.PermissionStatus
@@ -114,7 +131,6 @@ import com.innocomm.mlkit.camerauvctest.utils.drawTriangle
 import com.innocomm.mlkit.camerauvctest.utils.gOffsetX
 import com.innocomm.mlkit.camerauvctest.utils.gOffsetY
 import com.innocomm.mlkit.camerauvctest.utils.myPose
-import com.jiangdg.ausbc.CameraClient
 import com.jiangdg.ausbc.camera.bean.PreviewSize
 import com.jiangdg.ausbc.widget.AspectRatioSurfaceView2
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -127,26 +143,26 @@ class MainActivity : ComponentActivity() {
 
     val mmyViewModel: myViewModel by viewModels { myViewModel.Factory }
     lateinit var backCallback: OnBackPressedCallback
-
+    var lastUSBState = false
     @OptIn(ExperimentalPermissionsApi::class, ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.v(TAG, "onCreate()")
-
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         backCallback = onBackPressedDispatcher.addCallback {
             Log.v(TAG, "Back pressed")
             finish()
         }
+        lastUSBState = hasUSBPermission()
         //Force restart Activity if crash
         val recomposer = window.decorView.createLifecycleAwareWindowRecomposer(
-            CoroutineExceptionHandler { coroutineContext, throwable ->
+            CoroutineExceptionHandler { _, throwable ->
                 throwable.printStackTrace()
                 recreate() }, lifecycle)
         window.decorView.compositionContext = recomposer
         //~
         setContent {
             CameraUVCTestTheme {
-                HideSystemBars()
                 /*if(resources.displayMetrics.widthPixels<resources.displayMetrics.heightPixels) {
                     LockScreenOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
                 }*/
@@ -170,6 +186,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        lastUSBState = hasUSBPermission()
+        Log.v(TAG, "onPause "+lastUSBState)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        Log.v(TAG, "onResume")
+        if(lastUSBState != hasUSBPermission()){
+            Log.v(TAG, "restartMyApp")
+            //restartMyApp(this)
+            mmyViewModel.updatePreviewSize(null)
+        }
+    }
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
     }
@@ -249,47 +280,13 @@ private fun HandleRequests(
         deniedContent(shouldShowRationale)
     }
 }
-@Composable
-fun HideSystemBars() {
-    val context = LocalContext.current
 
-    DisposableEffect(Unit) {
-        val window = context.findActivity()?.window ?: return@DisposableEffect onDispose {}
-        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-
-        insetsController.apply {
-            hide(WindowInsetsCompat.Type.statusBars())
-            hide(WindowInsetsCompat.Type.navigationBars())
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
-
-        onDispose {
-            insetsController.apply {
-                show(WindowInsetsCompat.Type.statusBars())
-                show(WindowInsetsCompat.Type.navigationBars())
-                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
-            }
-        }
-    }
-}
-@Composable
-fun LockScreenOrientation(orientation: Int) {
-    val context = LocalContext.current
-    DisposableEffect(orientation) {
-        val activity = context.findActivity() ?: return@DisposableEffect onDispose {}
-        val originalOrientation = activity.requestedOrientation
-        activity.requestedOrientation = orientation
-        onDispose {
-            // restore original orientation when view disappears
-            activity.requestedOrientation = originalOrientation
-        }
-    }
-}
 fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null
 }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppBody(viewmodel: myViewModel) {
@@ -312,10 +309,9 @@ fun AppBody(viewmodel: myViewModel) {
 @Composable
 fun AppBar(viewmodel: myViewModel) {
     val activity = (LocalContext.current as? MainActivity)
-    val showMLTypeDlg = remember { mutableStateOf(false) }
-    val showPreviewSizeDlg = remember { mutableStateOf(false) }
-    val indxAnalyzer by viewmodel.indxAnalyzer.collectAsState()
-
+    val (showMenu,onSetshowMenu )= remember { mutableStateOf(false) }
+    //val (showMLTypeDlg,onSetshowMLTypeDlg) = remember { mutableStateOf(false) }
+    val (showPreviewSizeDlg,onSetshowPreviewSizeDlg) = remember { mutableStateOf(false) }
 
     TopAppBar(
         colors = TopAppBarDefaults.mediumTopAppBarColors(
@@ -326,22 +322,12 @@ fun AppBar(viewmodel: myViewModel) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if(indxAnalyzer==0){
-                    Text(
-                        text =  stringResource(R.string.app_name),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    DisplayVersion()
-                }else{
-                    Text(
-                        text = "Analyzer: "+myViewModel.Analyzers[indxAnalyzer],
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
+                Text(
+                    text =  stringResource(R.string.app_name),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                DisplayVersion()
             }
         },
         navigationIcon = {
@@ -357,38 +343,64 @@ fun AppBar(viewmodel: myViewModel) {
         },
         actions = {
             IconButton(onClick = {
-                showMLTypeDlg.value = true
+                onSetshowMenu(true)
             }) {
                 Icon(
-                    imageVector = Icons.Filled.Api,
-                    contentDescription = "Api",
-                    //tint = MaterialTheme.colorScheme.primary
+                    imageVector = Icons.Filled.MoreVert,
+                    contentDescription = "More"
                 )
-                if(showMLTypeDlg.value){
+                if (showMenu) {
+                    PopupMenuMain() {
+                        onSetshowMenu(false)
+                        when(it){
+                            //0->{onSetshowMLTypeDlg(true)}
+                            0->{viewmodel.openAnalyzerDialog.value = true}
+                            1->{onSetshowPreviewSizeDlg(true)}
+                            2->{}}
+                        }
+                    }
+                }
+                /*if(showMLTypeDlg){
                     popupMenuSelectMLType(viewmodel = viewmodel) {
-                        showMLTypeDlg.value = false
+                        onSetshowMLTypeDlg(false)
                     }
-                }
-
-            }
-            IconButton(onClick = {
-                showPreviewSizeDlg.value = true
-            }) {
-                Icon(
-                    imageVector = Icons.Filled.ResetTv,
-                    contentDescription = "Resolution",
-                    //tint = MaterialTheme.colorScheme.primary
-                )
-                if(showPreviewSizeDlg.value){
+                }*/
+                if(showPreviewSizeDlg){
                     popupMenuPreviewSize(viewmodel = viewmodel) {
-                        showPreviewSizeDlg.value = false
+                        onSetshowPreviewSizeDlg(false)
                     }
                 }
-            }
         },
     )
-}
 
+}
+@Composable
+fun PopupMenuMain(onDone: (menu: Int) -> Unit) {
+    DropdownMenu(
+        expanded = true,
+        onDismissRequest = { onDone(-1) }
+    ) {
+
+        DropdownMenuItem(
+            text = { Text(stringResource(id = R.string.menu_analyzer), fontSize = 20.sp) },
+            onClick = {
+                onDone(0)
+            }
+        )
+        DropdownMenuItem(
+            text = {
+                Text(
+                    stringResource(id = R.string.menu_previewsize),
+                    fontSize = 20.sp
+                )
+            },
+            onClick = {
+                onDone(1)
+            }
+        )
+    }
+
+}
 @Composable
 fun DisplayVersion() {
     val context = LocalContext.current
@@ -473,6 +485,7 @@ fun MyApp(viewmodel: myViewModel, paddingValues: PaddingValues) {
     val act = (LocalContext.current as? MainActivity)
     val myText by viewmodel.text.collectAsState()
     val fps by viewmodel.fps.collectAsState()
+    val analyzerFps by viewmodel.analyzerFps.collectAsState()
     val texts by viewmodel.texts.collectAsState()
     val barcodes by viewmodel.barcodes.collectAsState()
     val facemesh by viewmodel.facemesh.collectAsState()
@@ -480,13 +493,12 @@ fun MyApp(viewmodel: myViewModel, paddingValues: PaddingValues) {
     val detectedObjects by viewmodel.objects.collectAsState()
     val screenSize by viewmodel.screenSize.collectAsState()
     val mypose by viewmodel.poses.collectAsState()
-    val myCamClient by viewmodel.camclient.collectAsState()
+
     val imgSize by viewmodel.imgSize.collectAsState()
     val showSelfieSegment by viewmodel.showSelfieSegment.collectAsState()
-    val (showRefresh ,onSetShowRefresh) =  remember { mutableStateOf(!(act?.hasUSBPermission()?:false)) }
-
-    //val screenWidth = remember { mutableStateOf(context.resources.displayMetrics.widthPixels) }
-    //val screenHeight = remember { mutableStateOf(context.resources.displayMetrics.heightPixels) }
+    //val (showRefresh ,onSetShowRefresh) =  remember { mutableStateOf(!(act?.hasUSBPermission()?:false)) }
+    val previewsize by viewmodel.previewsize.collectAsState()
+    val camerabusy by viewmodel.camerabusy.collectAsState()
 
     LaunchedEffect(Unit) {
         act?.let { viewmodel.initCameraClient(it, imgSize.width, imgSize.height)}
@@ -499,29 +511,27 @@ fun MyApp(viewmodel: myViewModel, paddingValues: PaddingValues) {
             .padding(paddingValues = paddingValues),
         contentAlignment = Alignment.Center
     ) {
-        myCamClient.cameraclient?.let {
-            UVCCameraPreview(it, viewmodel, paddingValues)
-        }
 
-        if(showRefresh) {
+        UVCCameraPreview(viewmodel, paddingValues)
+
+       /* if(showRefresh) {
             RefreshButton() {
                 act?.let {
                     onSetShowRefresh(!it.hasUSBPermission())
-                    it.finish()
-                    it.startActivity(it.getIntent())
-                    if (Build.VERSION.SDK_INT >= 34) {
-                        it.overrideActivityTransition(
-                            Activity.OVERRIDE_TRANSITION_OPEN,
-                            0,
-                            0
-                        )
-                    }else{
-                        it.overridePendingTransition(0,0)
-                    }
+                    restartMyApp(it)
                 }
             }
+        }*/
+        if(camerabusy) {
+            CircularProgressIndicator(modifier = Modifier
+                .size(100.dp),color = Color.White)
         }
 
+        if(viewmodel.openAnalyzerDialog.value){
+            multiSelectAnalyer(viewmodel){
+                viewmodel.openAnalyzerDialog.value = false
+            }
+        }
         DrawBarcode( barcodes, imgSize.width, imgSize.height, screenSize.width, screenSize.height )
         DrawRecognizedText( texts, imgSize.width, imgSize.height, screenSize.width, screenSize.height )
         DrawFace(  faces = faces, imgSize.width, imgSize.height, screenSize.width, screenSize.height )
@@ -532,18 +542,7 @@ fun MyApp(viewmodel: myViewModel, paddingValues: PaddingValues) {
         Column(Modifier.align(Alignment.BottomCenter)) {
             displayMessage(myText)
         }
-        /*Column(
-            Modifier
-                .align(Alignment.CenterStart)
-                .padding(horizontal = 5.dp)) {
-            RadioButtonMLType(viewmodel)
-        }
-        Column(
-            Modifier
-                .align(Alignment.CenterEnd)
-                .padding(horizontal = 5.dp)) {
-            RadioButtonPreviewSize(previewsize,viewmodel)
-        }*/
+
         Column(
             Modifier
                 .align(Alignment.TopEnd)
@@ -556,8 +555,25 @@ fun MyApp(viewmodel: myViewModel, paddingValues: PaddingValues) {
                 color = Color.White,
                 fontSize = 30.sp
             )
+            Text(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(3.dp),
+                text = analyzerFps,
+                color = Color.White,
+                fontSize = 20.sp
+            )
         }
     }
+}
+
+fun restartMyApp( context: Activity){
+    val packageManager: PackageManager = context.packageManager
+    val intent: Intent = packageManager.getLaunchIntentForPackage(context.packageName)!!
+    val componentName: ComponentName = intent.component!!
+    val restartIntent: Intent = Intent.makeRestartActivityTask(componentName)
+    context.startActivity(restartIntent)
+    Runtime.getRuntime().exit(0)
 }
 @Composable
 fun RefreshButton( onClick: () -> Unit) {
@@ -898,49 +914,56 @@ fun displayMessage(barcode: String) {
 
 @Composable
 fun UVCCameraPreview(
-    cameraClient: CameraClient,
     viewmodel: myViewModel,
     paddingValues: PaddingValues
 ) {
     val context = LocalContext.current
     val act = context as MainActivity
     val topOffset = paddingValues.calculateTopPadding().dpToPx()
-    AndroidView(
-        modifier = Modifier.onGloballyPositioned {
-            viewmodel.setOffsetX(it.positionInRoot().x)
-            viewmodel.setOffsetY(it.positionInRoot().y-topOffset )
-        },
-        factory = { ctx ->
-            AspectRatioSurfaceView2(ctx).apply {
-                setAspectRatio(viewmodel.lastPreviewSize.width,viewmodel.lastPreviewSize.height)
-                this.holder.addCallback(object : SurfaceHolder.Callback {
-                    override fun surfaceCreated(holder: SurfaceHolder) {
-                        Log.i(MainActivity.TAG, "surfaceCreated ")
-                        viewmodel.cameraClient = cameraClient
-                        cameraClient.openCamera(this@apply)
-                    }
+    val myCamClient by viewmodel.camclient.collectAsState()
+    myCamClient.cameraclient?.let {cameraClient->
+        AndroidView(
+            modifier = Modifier.onGloballyPositioned {
+                viewmodel.setOffsetX(it.positionInRoot().x)
+                viewmodel.setOffsetY(it.positionInRoot().y - topOffset)
+            },
+            factory = { ctx ->
+                AspectRatioSurfaceView2(ctx).apply {
+                    setAspectRatio(
+                        viewmodel.lastPreviewSize.width,
+                        viewmodel.lastPreviewSize.height
+                    )
+                    this.holder.addCallback(object : SurfaceHolder.Callback {
+                        override fun surfaceCreated(holder: SurfaceHolder) {
+                            Log.i(MainActivity.TAG, "surfaceCreated ")
+                            viewmodel.cameraClient = cameraClient
+                            cameraClient.openCamera(this@apply)
+                        }
 
-                    override fun surfaceChanged(
-                        holder: SurfaceHolder,
-                        format: Int,
-                        width: Int,
-                        height: Int
-                    ) {
-                        Log.i(MainActivity.TAG, "surfaceChanged " + width + "x" + height+"   "+ act.hasUSBPermission())
-                        viewmodel.setScreenSize(width, height)
-                        cameraClient.setRenderSize(width, height)
-                    }
+                        override fun surfaceChanged(
+                            holder: SurfaceHolder,
+                            format: Int,
+                            width: Int,
+                            height: Int
+                        ) {
+                            Log.i(
+                                MainActivity.TAG,
+                                "surfaceChanged " + width + "x" + height + "   " + act.hasUSBPermission()
+                            )
+                            viewmodel.setScreenSize(width, height)
+                            cameraClient.setRenderSize(width, height)
+                        }
 
-                    override fun surfaceDestroyed(holder: SurfaceHolder) {
-                        Log.i(MainActivity.TAG, "surfaceDestroyed ")
-                        viewmodel.cameraClient = null
-                        cameraClient.closeCamera()
-                        viewmodel.shouldReInitCamera(context)
-                    }
-                })
+                        override fun surfaceDestroyed(holder: SurfaceHolder) {
+                            Log.i(MainActivity.TAG, "surfaceDestroyed ")
+                            viewmodel.cameraClient = null
+                            cameraClient.closeCamera()
+                            viewmodel.shouldReInitCamera(context)
+                        }
+                    })
+                }
             }
-        }
-    ) {
+        )
     }
 }
 @Composable
@@ -963,12 +986,7 @@ fun DrawFace(
                 screenWidth,
                 screenHeight
             )
-            if(topLeft.x<0 || topLeft.y <0 ||topLeft.x>screenWidth||topLeft.y>screenHeight){
-                Log.v(MainActivity.TAG,"Error " +topLeft.x+"-"+topLeft.y)
-                Log.v(MainActivity.TAG,"boundingBox " +boundingBox.topLeft.x+"-"+boundingBox.topLeft.y)
-                Log.v(MainActivity.TAG,"screenWidth " +screenWidth+"-"+screenHeight)
-                return@forEachIndexed
-            }
+
             val size =
                 adjustSize(boundingBox.size, imageWidth, imageHeight, screenWidth, screenHeight)
             drawBounds(topLeft, size, Color.Yellow, 5f)
@@ -996,7 +1014,12 @@ fun DrawFace(
                 )
                 drawLandmark(landmark, Color.Red, 3f)
             }
-
+            if(topLeft.x<-gOffsetX || topLeft.y <-gOffsetY ||topLeft.x>screenWidth||topLeft.y>screenHeight){
+                Log.v(MainActivity.TAG,"Error " +topLeft.x+"-"+topLeft.y)
+                Log.v(MainActivity.TAG,"boundingBox " +boundingBox.topLeft.x+"-"+boundingBox.topLeft.y)
+                Log.v(MainActivity.TAG,"screenWidth " +screenWidth+"-"+screenHeight)
+                return@forEachIndexed
+            }
             drawText(
                 textMeasurer = textMeasurer,
                 text = getFaceInfo(index,face),
@@ -1016,15 +1039,15 @@ fun DrawFace(
 
 fun getFaceInfo(index:Int,face:Face):String{
     var faceInfoString = "Face $index\n"												// Face area in rectangle
-    val bounds = face.boundingBox
+    //val bounds = face.boundingBox
     // Face is facing upward
-    val rotX = face.headEulerAngleX
+    //val rotX = face.headEulerAngleX
     //faceInfoString += "\\nRotation X: $rotX (${if (rotX >= 0) "Facing Upward" else "Facing Down"})"
     // Face is facing to the right of the camera
-    val rotY = face.headEulerAngleY
+    //val rotY = face.headEulerAngleY
     //faceInfoString += "\\nRotation Y: $rotY (${if (rotY >= 0) "Facing Right" else "Facing Left"})"
     // Face is rotated counter-clockwise relative to the camera
-    val rotZ = face.headEulerAngleZ
+    //val rotZ = face.headEulerAngleZ
     //faceInfoString += "\\nRotation Z: $rotZ (${if (rotZ >= 0) "Rotation Counter-Clockwise" else "Facing Rotation Clockwise"})"
     // Landmark
     face.getLandmark(FaceLandmark.LEFT_EAR)?.let {}
@@ -1071,12 +1094,7 @@ fun DrawFaceMesh(
                 screenWidth,
                 screenHeight
             )
-            if(topLeft.x<0 || topLeft.y <0 ||topLeft.x>screenWidth||topLeft.y>screenHeight){
-                Log.v(MainActivity.TAG,"Error " +topLeft.x+"-"+topLeft.y)
-                Log.v(MainActivity.TAG,"boundingBox " +boundingBox.topLeft.x+"-"+boundingBox.topLeft.y)
-                Log.v(MainActivity.TAG,"screenWidth " +screenWidth+"-"+screenHeight)
-                return@forEach
-            }
+
             val size =
                 adjustSize(boundingBox.size, imageWidth, imageHeight, screenWidth, screenHeight)
             drawBounds(topLeft, size, Color.Yellow, 5f)
@@ -1145,8 +1163,8 @@ fun DrawBarcode(
     val textMeasurer = rememberTextMeasurer()
     Canvas(modifier = Modifier.fillMaxSize()) {
         objects.forEach {
-            it.boundingBox?.let { boundingBox->
-                val boundingBox = boundingBox.toComposeRect()
+            it.boundingBox?.let { box->
+                val boundingBox = box.toComposeRect()
                 val topLeft = adjustPoint(
                     PointF(boundingBox.topLeft.x, boundingBox.topLeft.y),
                     imageWidth,
@@ -1158,7 +1176,12 @@ fun DrawBarcode(
                     adjustSize(boundingBox.size, imageWidth, imageHeight, screenWidth, screenHeight)
 
                 drawBounds(topLeft, size, Color.Yellow, 10f)
-
+                if(topLeft.x<-gOffsetX || topLeft.y <(25.sp.toPx()-gOffsetY) ||topLeft.x>screenWidth||topLeft.y>screenHeight){
+                    Log.v(MainActivity.TAG,"Error " +topLeft.x+"-"+topLeft.y)
+                    Log.v(MainActivity.TAG,"boundingBox " +boundingBox.topLeft.x+"-"+boundingBox.topLeft.y)
+                    Log.v(MainActivity.TAG,"screenWidth " +screenWidth+"-"+screenHeight)
+                    return@forEach
+                }
                 drawText(
                     textMeasurer = textMeasurer,
                     text = it.displayValue.toString(),
@@ -1188,10 +1211,10 @@ fun DrawRecognizedText(
     val textMeasurer = rememberTextMeasurer()
     Canvas(modifier = Modifier.fillMaxSize()) {
         objects.forEach {
-            it.textBlocks.forEach{
+            it.textBlocks.forEach outer@{
 
-                it.boundingBox?.let {  boundingBox->
-                    val boundingBox = boundingBox.toComposeRect()
+                it.boundingBox?.let {  box->
+                    val boundingBox = box.toComposeRect()
                     val topLeft = adjustPoint(
                         PointF(boundingBox.topLeft.x, boundingBox.topLeft.y),
                         imageWidth,
@@ -1203,7 +1226,12 @@ fun DrawRecognizedText(
                         adjustSize(boundingBox.size, imageWidth, imageHeight, screenWidth, screenHeight)
 
                     drawBounds(topLeft, size, Color.Yellow, 10f)
-
+                    if(topLeft.x<-gOffsetX || topLeft.y <(25.sp.toPx()-gOffsetY) ||topLeft.x>screenWidth||topLeft.y>screenHeight){
+                        Log.v(MainActivity.TAG,"Error " +topLeft.x+"-"+topLeft.y)
+                        Log.v(MainActivity.TAG,"boundingBox " +boundingBox.topLeft.x+"-"+boundingBox.topLeft.y)
+                        Log.v(MainActivity.TAG,"screenWidth " +screenWidth+"-"+screenHeight)
+                        return@outer
+                    }
                     drawText(
                         textMeasurer = textMeasurer,
                         text = it.text,
@@ -1236,30 +1264,89 @@ fun DrawDetectedSegmentation(
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun popupMenuSelectMLType(viewmodel: myViewModel,onDone: () -> Unit){
-    val radioOptions by  remember { mutableStateOf(myViewModel.Analyzers) }
-
-    DropdownMenu(
-        modifier = Modifier.padding(10.dp),
-        expanded = true,
-        onDismissRequest = { onDone() }
-    ) {
-        radioOptions.forEachIndexed { index, text ->
-            DropdownMenuItem(
-                text = {
+fun multiSelectAnalyer(viewmodel: myViewModel, onDone: () -> Unit) {
+    val selectedItems by remember {
+        mutableStateOf(viewmodel.selectedAnalyzer)
+    }
+    AlertDialog(onDismissRequest = { onDone() },
+        //modifier = Modifier.padding(0.dp, 16.dp, 0.dp, 16.dp),
+        text = {
+            Column {
+                Row() {
                     Text(
-                        text,
+                        stringResource(id = R.string.title_selectitems),
                         fontSize = 20.sp
                     )
-                },
-                onClick = {
-                    viewmodel.setAnalyzer(index)
-                    onDone()
                 }
-            )
-        }
-    }
+
+                LazyColumn(
+                    userScrollEnabled = true,
+                    modifier = Modifier.fillMaxHeight(0.8f)
+                ) {
+                    items(myViewModel.Analyzers.size) { idx ->
+                        val isSelected = viewmodel.selectedAnalyzer.contains(idx)
+                        ListItem(
+                            modifier = Modifier.combinedClickable(
+                                onClick = {
+                                    if (isSelected) {
+                                        viewmodel.selectedAnalyzer.remove(idx)
+                                        viewmodel.resetDetectedData()
+                                    } else {
+                                        viewmodel.selectedAnalyzer.add(idx)
+                                    }
+
+                                }
+                            ),
+                            leadingContent = {
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.CheckCircle,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Rounded.RadioButtonUnchecked,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.outline,
+                                    )
+                                }
+                            },
+                            headlineContent = {
+                                Text(
+                                    text = myViewModel.Analyzers[idx]
+                                )
+                            },
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Button(
+                        onClick = {
+                            viewmodel.resetDetectedData()
+                            selectedItems.clear()
+                        },
+                    ) {
+                        Text(stringResource(id = R.string.clear))
+                    }
+                    Button(
+                        onClick = {
+                            onDone()
+                        },
+                    ) {
+                        Text(stringResource(id = android.R.string.ok))
+                    }
+                }
+            }
+        },
+        confirmButton = { }
+    )
 
 }
 
@@ -1293,7 +1380,19 @@ fun popupMenuPreviewSize(viewmodel: myViewModel,onDone: () -> Unit){
     }
 
 }
+@SuppressLint("ModifierFactoryUnreferencedReceiver")
+fun Modifier.myButtonModifierDlg(): Modifier = composed {
 
+    if (isSystemInDarkTheme()) {
+        widthIn(min = 100.dp)
+            .height(40.dp)
+            .shadow(spotColor = Color.White, elevation = 8.dp, shape = CircleShape)
+    } else {
+        widthIn(min = 100.dp)
+            .height(40.dp)
+            .shadow(elevation = 8.dp, shape = CircleShape)
+    }
+}
 @Preview(showBackground = true, device = "spec:width=1024dp,height=768dp,dpi=160")
 @Composable
 fun DefaultPreviewTablet() {
@@ -1322,10 +1421,10 @@ fun DefaultPreviewPhone() {
 
 @Preview(showBackground = true)
 @Composable
-fun Preview_DialogSelectMLType() {
+fun Preview_MultiSelect() {
     val viewmodel = myViewModel(myApp())
     CameraUVCTestTheme {
-        popupMenuSelectMLType(viewmodel) {
+        multiSelectAnalyer(viewmodel) {
 
         }
     }
