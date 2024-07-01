@@ -11,8 +11,8 @@ android {
         applicationId "com.innocomm.mlkit.camerauvctest"
         minSdk 21
         targetSdk 33
-        versionCode 5
-        versionName "1.0.0.3"
+        versionCode 7
+        versionName "1.0.0.6"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

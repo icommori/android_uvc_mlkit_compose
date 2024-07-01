@@ -132,6 +132,7 @@ import com.innocomm.mlkit.camerauvctest.utils.gOffsetX
 import com.innocomm.mlkit.camerauvctest.utils.gOffsetY
 import com.innocomm.mlkit.camerauvctest.utils.myPose
 import com.jiangdg.ausbc.camera.bean.PreviewSize
+import com.jiangdg.ausbc.utils.CameraUtils
 import com.jiangdg.ausbc.widget.AspectRatioSurfaceView2
 import kotlinx.coroutines.CoroutineExceptionHandler
 
@@ -189,7 +190,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         lastUSBState = hasUSBPermission()
-        Log.v(TAG, "onPause "+lastUSBState)
+        Log.v(TAG, "onPause ")
     }
 
     override fun onResume() {
@@ -198,7 +199,8 @@ class MainActivity : ComponentActivity() {
         if(lastUSBState != hasUSBPermission()){
             Log.v(TAG, "restartMyApp")
             //restartMyApp(this)
-            mmyViewModel.updatePreviewSize(null)
+            window.decorView.postDelayed({mmyViewModel.updatePreviewSize(null)},1000)
+
         }
     }
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -214,15 +216,15 @@ class MainActivity : ComponentActivity() {
         //获取service
         val manager = getSystemService(USB_SERVICE) as UsbManager
         //获取设备列表(一般只有一个,usb 口只有一个)
-        val deviceList = manager.deviceList
-        val deviceIterator: Iterator<UsbDevice> = deviceList.values.iterator()
+        val result = manager.deviceList.entries.toList()
+        val deviceList = result.filter { CameraUtils.isUsbCamera(it.value)&&manager.hasPermission(it.value) }.toList()
 
-        if(deviceList.size>0){
-            val device = deviceIterator.next()
-            Log.v(TAG,"USB device ${device.deviceName}: "+manager.hasPermission(device))
-            return manager.hasPermission(device)
+        deviceList.forEach() {
+            Log.v(TAG,"USBCam ${it.key} ${it.value.deviceName}: has USB permission")
         }
-        return false
+        val r = deviceList.size>0
+        Log.v(TAG,"hasUSBPermission: ${r}")
+        return r
     }
 
 }

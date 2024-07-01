@@ -50,6 +50,7 @@ import com.jiangdg.ausbc.callback.IPreviewDataCallBack
 import com.jiangdg.ausbc.camera.CameraUvcStrategy
 import com.jiangdg.ausbc.camera.bean.CameraRequest
 import com.jiangdg.ausbc.camera.bean.PreviewSize
+import com.jiangdg.ausbc.utils.CameraUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -637,8 +638,8 @@ class myViewModel(val context: Application) : ViewModel() {
         val cameraUvcStrategy = CameraUvcStrategy(ctx)
         val list = cameraUvcStrategy.getUsbDeviceList()
         list?.let {
-            it.forEach {
-                Log.v(TAG, "UVCCam: " + it.deviceName)
+            it.filter { CameraUtils.isUsbCamera(it) }.toSet()?.forEach{
+                Log.v(TAG, "Available UVCCam: " + it.deviceName)
             }
         }
 
