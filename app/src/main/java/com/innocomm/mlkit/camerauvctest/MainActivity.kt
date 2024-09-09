@@ -553,9 +553,17 @@ fun MyApp(viewmodel: myViewModel, paddingValues: PaddingValues) {
                 modifier = Modifier
                     .verticalScroll(rememberScrollState())
                     .padding(3.dp),
+                text = viewmodel.lastPreviewSize.width.toString()+"x"+ viewmodel.lastPreviewSize.height.toString(),
+                color = Color.White,
+                fontSize = 28.sp
+            )
+            Text(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(3.dp),
                 text = "FPS: "+fps,
                 color = Color.White,
-                fontSize = 30.sp
+                fontSize = 20.sp
             )
             Text(
                 modifier = Modifier
@@ -1266,7 +1274,7 @@ fun DrawDetectedSegmentation(
     )
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun multiSelectAnalyer(viewmodel: myViewModel, onDone: () -> Unit) {
     val selectedItems by remember {
@@ -1316,7 +1324,7 @@ fun multiSelectAnalyer(viewmodel: myViewModel, onDone: () -> Unit) {
                                     )
                                 }
                             },
-                            headlineContent = {
+                            headlineText = {
                                 Text(
                                     text = myViewModel.Analyzers[idx]
                                 )
